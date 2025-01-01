@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 interface WalletInputProps {
@@ -13,6 +13,8 @@ interface WalletInputProps {
 
 export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: WalletInputProps) {
   const [input, setInput] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
 
   const handleSubmit = () => {
@@ -27,24 +29,57 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size === 0) {
+      toast({
+        title: "Invalid File",
+        description: "The selected file is empty.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
     try {
+      setIsUploading(true);
       onUploadProgress(0);
+
+      // Close existing WebSocket connection if any
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
 
       // Setup WebSocket connection for progress updates
       const ws = new WebSocket(`ws://${window.location.host}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket connection established');
+      };
 
       ws.onmessage = (event) => {
-        const update = JSON.parse(event.data);
-        if (update.type === 'upload') {
-          onUploadProgress(update.progress);
-          if (update.progress === 100 && update.addresses) {
-            setInput(update.addresses.join('\n'));
-            ws.close();
+        try {
+          const update = JSON.parse(event.data);
+          if (update.type === 'upload') {
+            onUploadProgress(update.progress);
+            if (update.progress === 100 && update.addresses) {
+              setInput(update.addresses.join('\n'));
+              ws.close();
+            }
           }
+        } catch (error) {
+          console.error('Error processing WebSocket message:', error);
         }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        toast({
+          title: "Connection Error",
+          description: "Lost connection to the server. Please try again.",
+          variant: "destructive"
+        });
       };
 
       const response = await fetch('/api/upload', {
@@ -53,7 +88,8 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed');
       }
 
       const result = await response.json();
@@ -65,10 +101,14 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       console.error('Error uploading file:', error);
       toast({
         title: "Upload Failed",
-        description: "There was an error uploading your file. Please try again.",
+        description: error.message || "There was an error uploading your file. Please try again.",
         variant: "destructive"
       });
       onUploadProgress(0);
+    } finally {
+      setIsUploading(false);
+      // Clean up input field
+      e.target.value = '';
     }
   };
 
@@ -83,11 +123,12 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
           value={input}
           onChange={(e) => setInput(e.target.value)}
           className="min-h-[200px] mb-4"
+          disabled={isUploading}
         />
         <div className="flex gap-4">
           <Button
             onClick={handleSubmit}
-            disabled={isProcessing || !input.trim()}
+            disabled={isProcessing || !input.trim() || isUploading}
             className="flex-1"
           >
             Check Balances
@@ -95,16 +136,17 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
           <Button
             variant="outline"
             className="relative"
-            disabled={isProcessing}
+            disabled={isProcessing || isUploading}
           >
             <input
               type="file"
-              accept=".txt"
+              accept=".txt,.csv"
               onChange={handleFileUpload}
               className="absolute inset-0 opacity-0 cursor-pointer"
+              disabled={isProcessing || isUploading}
             />
             <Upload className="w-4 h-4 mr-2" />
-            Upload File
+            {isUploading ? 'Uploading...' : 'Upload File'}
           </Button>
         </div>
       </CardContent>
