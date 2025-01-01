@@ -3,6 +3,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload } from "lucide-react";
 import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 interface WalletInputProps {
   onSubmit: (addresses: string[]) => void;
@@ -12,6 +13,7 @@ interface WalletInputProps {
 
 export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: WalletInputProps) {
   const [input, setInput] = useState("");
+  const { toast } = useToast();
 
   const handleSubmit = () => {
     const addresses = input
@@ -21,43 +23,51 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
     onSubmit(addresses);
   };
 
-  const processChunk = async (
-    file: File,
-    start: number,
-    chunkSize: number,
-    accumulator: string
-  ): Promise<string> => {
-    const chunk = file.slice(start, start + chunkSize);
-    const text = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target?.result as string);
-      reader.readAsText(chunk);
-    });
-
-    const newAccumulator = accumulator + text;
-    const progress = Math.min(100, (start + chunkSize) / file.size * 100);
-    onUploadProgress(progress);
-
-    if (start + chunkSize < file.size) {
-      return processChunk(file, start + chunkSize, chunkSize, newAccumulator);
-    }
-
-    return newAccumulator;
-  };
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    onUploadProgress(0);
-    const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+    const formData = new FormData();
+    formData.append('file', file);
 
     try {
-      const result = await processChunk(file, 0, CHUNK_SIZE, "");
-      setInput(result);
-      onUploadProgress(100);
+      onUploadProgress(0);
+
+      // Setup WebSocket connection for progress updates
+      const ws = new WebSocket(`ws://${window.location.host}`);
+
+      ws.onmessage = (event) => {
+        const update = JSON.parse(event.data);
+        if (update.type === 'upload') {
+          onUploadProgress(update.progress);
+          if (update.progress === 100 && update.addresses) {
+            setInput(update.addresses.join('\n'));
+            ws.close();
+          }
+        }
+      };
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error('File processing failed');
+      }
+
     } catch (error) {
-      console.error('Error reading file:', error);
+      console.error('Error uploading file:', error);
+      toast({
+        title: "Upload Failed",
+        description: "There was an error uploading your file. Please try again.",
+        variant: "destructive"
+      });
       onUploadProgress(0);
     }
   };
