@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import fileUpload from "express-fileupload";
-import { createReadStream } from "fs";
+import { createReadStream, unlink } from "fs";
 import { WebSocketServer } from "ws";
 import readline from "readline";
 import crypto from 'crypto';
@@ -62,7 +62,7 @@ export function registerRoutes(app: Express): Server {
         wss.emit('connection', ws, request);
       });
     } catch (error) {
-      console.error('WebSocket upgrade error:', error);
+      console.error('WebSocket error:', error);
       socket.destroy();
     }
   });
@@ -160,8 +160,19 @@ export function registerRoutes(app: Express): Server {
       console.log('File processing complete');
       console.log(`Processed ${lineCount} lines, found ${invalidKeys} invalid keys`);
 
-      // Immediately delete the temporary file
-      file.tempFilePath && require('fs').unlinkSync(file.tempFilePath);
+      // Delete temp file using ES modules
+      if (file.tempFilePath) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            unlink(file.tempFilePath, (err) => {
+              if (err) reject(err);
+              else resolve();
+            });
+          });
+        } catch (err) {
+          console.error('Error deleting temp file:', err);
+        }
+      }
 
       res.json({ 
         success: true, 
