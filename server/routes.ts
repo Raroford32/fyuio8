@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { createServer } from "http";
+import { createServer, type Server } from "http";
 import fileUpload from "express-fileupload";
 import { createReadStream } from "fs";
 import { WebSocketServer } from "ws";
@@ -134,7 +134,7 @@ export function registerRoutes(app: Express) {
 
       console.log('File processing complete');
       res.json({ success: true, addresses });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error:', error);
       res.status(500).json({ error: 'Error processing file', details: error.message });
     }

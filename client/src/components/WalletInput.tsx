@@ -48,14 +48,26 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       // Close existing WebSocket connection if any
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
       }
 
       // Setup WebSocket connection for progress updates
-      const ws = new WebSocket(`ws://${window.location.host}`);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}`);
       wsRef.current = ws;
+
+      let wsConnected = false;
+      const wsTimeout = setTimeout(() => {
+        if (!wsConnected) {
+          ws.close();
+          throw new Error('WebSocket connection timeout');
+        }
+      }, 5000);
 
       ws.onopen = () => {
         console.log('WebSocket connection established');
+        wsConnected = true;
+        clearTimeout(wsTimeout);
       };
 
       ws.onmessage = (event) => {
@@ -82,6 +94,11 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
         });
       };
 
+      ws.onclose = () => {
+        console.log('WebSocket connection closed');
+        wsRef.current = null;
+      };
+
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -97,7 +114,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
         throw new Error('File processing failed');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading file:', error);
       toast({
         title: "Upload Failed",
@@ -107,6 +124,10 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       onUploadProgress(0);
     } finally {
       setIsUploading(false);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       // Clean up input field
       e.target.value = '';
     }
