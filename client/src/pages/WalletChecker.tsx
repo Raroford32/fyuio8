@@ -13,6 +13,7 @@ const MAX_RETRIES = 3;
 export default function WalletChecker() {
   const [wallets, setWallets] = useState<WalletData[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -28,6 +29,9 @@ export default function WalletChecker() {
 
   const processWallet = async (wallet: WalletData, retries = 0): Promise<WalletData> => {
     try {
+      if (!web3Client.validateAddress(wallet.address)) {
+        return { ...wallet, error: "Invalid address", checked: true };
+      }
       const balance = await web3Client.getBalance(wallet.address);
       return { ...wallet, balance, checked: true };
     } catch (error) {
@@ -66,6 +70,7 @@ export default function WalletChecker() {
 
     setWallets(validWallets);
     setIsProcessing(true);
+    setUploadProgress(100); // File processing complete
 
     for (let i = 0; i < validWallets.length; i += BATCH_SIZE) {
       const batch = validWallets.slice(i, i + BATCH_SIZE);
@@ -82,19 +87,29 @@ export default function WalletChecker() {
   const completed = wallets.filter(w => w.checked).length;
   const errors = wallets.filter(w => w.error).length;
 
+  // Calculate total progress including both upload and processing
+  const processProgress = wallets.length ? (completed / wallets.length) * 100 : 0;
+  const totalProgress = isProcessing ? 
+    (uploadProgress * 0.2 + processProgress * 0.8) : // Weight upload as 20% of total progress
+    uploadProgress;
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-8">
-        <WalletInput onSubmit={handleSubmit} isProcessing={isProcessing} />
-        
-        {wallets.length > 0 && (
+        <WalletInput 
+          onSubmit={handleSubmit} 
+          onUploadProgress={setUploadProgress}
+          isProcessing={isProcessing} 
+        />
+
+        {(wallets.length > 0 || uploadProgress > 0) && (
           <>
             <ProgressDisplay
-              total={wallets.length}
-              completed={completed}
+              total={wallets.length || 100}
+              completed={completed || Math.floor(totalProgress)}
               errors={errors}
             />
-            <ResultsTable wallets={wallets} />
+            {wallets.length > 0 && <ResultsTable wallets={wallets} />}
           </>
         )}
       </div>

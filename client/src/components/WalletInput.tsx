@@ -6,10 +6,11 @@ import { useState } from "react";
 
 interface WalletInputProps {
   onSubmit: (addresses: string[]) => void;
+  onUploadProgress: (progress: number) => void;
   isProcessing: boolean;
 }
 
-export function WalletInput({ onSubmit, isProcessing }: WalletInputProps) {
+export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: WalletInputProps) {
   const [input, setInput] = useState("");
 
   const handleSubmit = () => {
@@ -20,16 +21,45 @@ export function WalletInput({ onSubmit, isProcessing }: WalletInputProps) {
     onSubmit(addresses);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processChunk = async (
+    file: File,
+    start: number,
+    chunkSize: number,
+    accumulator: string
+  ): Promise<string> => {
+    const chunk = file.slice(start, start + chunkSize);
+    const text = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.readAsText(chunk);
+    });
+
+    const newAccumulator = accumulator + text;
+    const progress = Math.min(100, (start + chunkSize) / file.size * 100);
+    onUploadProgress(progress);
+
+    if (start + chunkSize < file.size) {
+      return processChunk(file, start + chunkSize, chunkSize, newAccumulator);
+    }
+
+    return newAccumulator;
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      setInput(text);
-    };
-    reader.readAsText(file);
+    onUploadProgress(0);
+    const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+
+    try {
+      const result = await processChunk(file, 0, CHUNK_SIZE, "");
+      setInput(result);
+      onUploadProgress(100);
+    } catch (error) {
+      console.error('Error reading file:', error);
+      onUploadProgress(0);
+    }
   };
 
   return (
