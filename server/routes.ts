@@ -4,6 +4,7 @@ import fileUpload from "express-fileupload";
 import { createReadStream } from "fs";
 import { WebSocketServer } from "ws";
 import readline from "readline";
+import crypto from 'crypto';
 
 interface ProgressUpdate {
   type: 'upload' | 'processing';
@@ -13,7 +14,26 @@ interface ProgressUpdate {
   addresses?: string[];
 }
 
-export function registerRoutes(app: Express) {
+function validateAndDeriveAddress(privateKey: string): string | null {
+  // Remove '0x' prefix if present
+  const cleanKey = privateKey.toLowerCase().replace('0x', '');
+
+  // Check if it's a valid 64-character hex string
+  if (!/^[0-9a-f]{64}$/.test(cleanKey)) {
+    return null;
+  }
+
+  try {
+    // Hash the private key immediately after validation
+    const hash = crypto.createHash('sha256').update(cleanKey).digest('hex');
+    // Only return derived address format
+    return `0x${hash.slice(0, 40)}`;
+  } catch {
+    return null;
+  }
+}
+
+export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
 
   // File upload middleware with detailed error handling
@@ -22,7 +42,7 @@ export function registerRoutes(app: Express) {
     tempFileDir: '/tmp/',
     limits: { fileSize: 500 * 1024 * 1024 }, // 500MB limit
     abortOnLimit: false,
-    debug: true, // Enable debug mode for detailed logging
+    debug: true,
   }));
 
   // Create WebSocket server with custom upgrade handling
@@ -34,7 +54,6 @@ export function registerRoutes(app: Express) {
   // Handle WebSocket upgrade requests
   httpServer.on('upgrade', (request, socket, head) => {
     try {
-      // Skip Vite HMR connections
       if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
         return;
       }
@@ -74,6 +93,7 @@ export function registerRoutes(app: Express) {
 
       const filePath = file.tempFilePath;
       const addresses: string[] = [];
+      let invalidKeys = 0;
 
       // Create read stream for the file
       const fileStream = createReadStream(filePath);
@@ -106,13 +126,18 @@ export function registerRoutes(app: Express) {
       // Process lines and send progress updates
       console.log('Starting line processing...');
       for await (const line of newRl) {
-        const address = line.trim();
-        if (address) {
-          addresses.push(address);
+        const privateKey = line.trim();
+        if (privateKey) {
+          const address = validateAndDeriveAddress(privateKey);
+          if (address) {
+            addresses.push(address);
+          } else {
+            invalidKeys++;
+          }
         }
         processedLines++;
 
-        // Broadcast progress to all clients every 1000 lines or at 100%
+        // Broadcast progress every 1000 lines or at 100%
         if (processedLines % 1000 === 0 || processedLines === lineCount) {
           const progress = Math.floor((processedLines / lineCount) * 100);
           console.log(`Processing progress: ${progress}%`);
@@ -133,7 +158,20 @@ export function registerRoutes(app: Express) {
       }
 
       console.log('File processing complete');
-      res.json({ success: true, addresses });
+      console.log(`Processed ${lineCount} lines, found ${invalidKeys} invalid keys`);
+
+      // Immediately delete the temporary file
+      file.tempFilePath && require('fs').unlinkSync(file.tempFilePath);
+
+      res.json({ 
+        success: true, 
+        addresses,
+        stats: {
+          total: lineCount,
+          valid: addresses.length,
+          invalid: invalidKeys
+        }
+      });
     } catch (error: any) {
       console.error('Upload error:', error);
       res.status(500).json({ error: 'Error processing file', details: error.message });

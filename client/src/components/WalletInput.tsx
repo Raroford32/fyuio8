@@ -1,9 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload } from "lucide-react";
+import { Upload, AlertTriangle } from "lucide-react";
 import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface WalletInputProps {
   onSubmit: (addresses: string[]) => void;
@@ -14,6 +24,8 @@ interface WalletInputProps {
 export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: WalletInputProps) {
   const [input, setInput] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [showSecurityWarning, setShowSecurityWarning] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
 
@@ -25,19 +37,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
     onSubmit(addresses);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size === 0) {
-      toast({
-        title: "Invalid File",
-        description: "The selected file is empty.",
-        variant: "destructive"
-      });
-      return;
-    }
-
+  const processFile = async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -114,6 +114,13 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
         throw new Error('File processing failed');
       }
 
+      if (result.stats) {
+        toast({
+          title: "Processing Complete",
+          description: `Processed ${result.stats.total} keys: ${result.stats.valid} valid, ${result.stats.invalid} invalid`,
+        });
+      }
+
     } catch (error: any) {
       console.error('Error uploading file:', error);
       toast({
@@ -128,49 +135,114 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
         wsRef.current.close();
         wsRef.current = null;
       }
-      // Clean up input field
-      e.target.value = '';
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size === 0) {
+      toast({
+        title: "Invalid File",
+        description: "The selected file is empty.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setSelectedFile(file);
+    setShowSecurityWarning(true);
+    e.target.value = ''; // Reset input
+  };
+
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Enter Ethereum Addresses</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Textarea
-          placeholder="Enter addresses (one per line or comma-separated)"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          className="min-h-[200px] mb-4"
-          disabled={isUploading}
-        />
-        <div className="flex gap-4">
-          <Button
-            onClick={handleSubmit}
-            disabled={isProcessing || !input.trim() || isUploading}
-            className="flex-1"
-          >
-            Check Balances
-          </Button>
-          <Button
-            variant="outline"
-            className="relative"
-            disabled={isProcessing || isUploading}
-          >
-            <input
-              type="file"
-              accept=".txt,.csv"
-              onChange={handleFileUpload}
-              className="absolute inset-0 opacity-0 cursor-pointer"
+    <>
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>Enter Ethereum Addresses</span>
+            <AlertTriangle className="h-5 w-5 text-yellow-500" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900 rounded-lg p-4 mb-4">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              Warning: Never share your private keys. This tool only derives public addresses for balance checking.
+            </p>
+          </div>
+          <Textarea
+            placeholder="Enter addresses (one per line or comma-separated)"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            className="min-h-[200px] mb-4"
+            disabled={isUploading}
+          />
+          <div className="flex gap-4">
+            <Button
+              onClick={handleSubmit}
+              disabled={isProcessing || !input.trim() || isUploading}
+              className="flex-1"
+            >
+              Check Balances
+            </Button>
+            <Button
+              variant="outline"
+              className="relative"
               disabled={isProcessing || isUploading}
-            />
-            <Upload className="w-4 h-4 mr-2" />
-            {isUploading ? 'Uploading...' : 'Upload File'}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+            >
+              <input
+                type="file"
+                accept=".txt,.csv"
+                onChange={handleFileSelect}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                disabled={isProcessing || isUploading}
+              />
+              <Upload className="w-4 h-4 mr-2" />
+              {isUploading ? 'Uploading...' : 'Upload File'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={showSecurityWarning} onOpenChange={setShowSecurityWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Security Warning</AlertDialogTitle>
+            <AlertDialogDescription>
+              <p className="mb-2">
+                This file appears to contain private keys. Please be aware:
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Private keys will never be stored or transmitted</li>
+                <li>Only derived public addresses will be used for balance checking</li>
+                <li>The file will be processed securely in memory</li>
+                <li>All temporary data will be immediately destroyed after processing</li>
+              </ul>
+              <p className="mt-2 font-medium">
+                Do you want to continue with the file upload?
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setSelectedFile(null);
+              setShowSecurityWarning(false);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (selectedFile) {
+                processFile(selectedFile);
+              }
+              setSelectedFile(null);
+              setShowSecurityWarning(false);
+            }}>
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
