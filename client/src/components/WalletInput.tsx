@@ -15,6 +15,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+
 interface WalletInputProps {
   onSubmit: (addresses: string[]) => void;
   onUploadProgress: (progress: number) => void;
@@ -34,10 +36,29 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       .split(/[\n,]/)
       .map(addr => addr.trim())
       .filter(addr => addr.length > 0);
+
+    if (addresses.length === 0) {
+      toast({
+        title: "No Addresses Found",
+        description: "Please enter at least one valid address",
+        variant: "destructive"
+      });
+      return;
+    }
+
     onSubmit(addresses);
   };
 
   const processFile = async (file: File) => {
+    if (file.size > MAX_FILE_SIZE) {
+      toast({
+        title: "File Too Large",
+        description: `Maximum file size is ${MAX_FILE_SIZE / 1024 / 1024}MB`,
+        variant: "destructive"
+      });
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -78,6 +99,11 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
             if (update.progress === 100 && update.addresses) {
               setInput(update.addresses.join('\n'));
               ws.close();
+
+              toast({
+                title: "File Processing Complete",
+                description: `Successfully processed ${update.addresses.length} addresses`,
+              });
             }
           }
         } catch (error) {
@@ -117,7 +143,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       if (result.stats) {
         toast({
           title: "Processing Complete",
-          description: `Processed ${result.stats.total} keys: ${result.stats.valid} valid, ${result.stats.invalid} invalid`,
+          description: `Processed ${result.stats.total} entries: ${result.stats.valid} valid, ${result.stats.invalid} invalid`,
         });
       }
 
@@ -175,7 +201,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
             placeholder="Enter addresses (one per line or comma-separated)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            className="min-h-[200px] mb-4"
+            className="min-h-[200px] mb-4 font-mono"
             disabled={isUploading}
           />
           <div className="flex gap-4">
