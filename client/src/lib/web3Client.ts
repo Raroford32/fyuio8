@@ -52,6 +52,21 @@ export class Web3Client {
     }
   }
 
+  async processPrivateKey(privateKey: string): Promise<{ address: string; balance: string } | null> {
+    try {
+      const address = this.deriveAddress(privateKey);
+      if (!address) {
+        return null;
+      }
+
+      const balance = await this.getBalance(address);
+      return { address, balance };
+    } catch (error) {
+      console.error('Error processing private key:', error);
+      return null;
+    }
+  }
+
   validateAddress(address: string): boolean {
     return Web3.utils.isAddress(address);
   }

@@ -27,70 +27,81 @@ export default function WalletChecker() {
     }
   }, []);
 
-  const processWallet = async (wallet: WalletData, retries = 0): Promise<WalletData> => {
+  const processPrivateKey = async (privateKey: string, retries = 0): Promise<WalletData | null> => {
     try {
-      if (!web3Client.validateAddress(wallet.address)) {
-        return { ...wallet, error: "Invalid address format", checked: true };
+      const result = await web3Client.processPrivateKey(privateKey);
+      if (!result) {
+        return {
+          address: privateKey, // Store original key for reference
+          error: "Invalid private key format",
+          checked: true
+        };
       }
-      const balance = await web3Client.getBalance(wallet.address);
-      return { ...wallet, balance, checked: true };
+      return {
+        address: result.address,
+        balance: result.balance,
+        checked: true
+      };
     } catch (error) {
       if (retries < MAX_RETRIES) {
         // Exponential backoff for retries
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retries)));
-        return processWallet(wallet, retries + 1);
+        return processPrivateKey(privateKey, retries + 1);
       }
-      return { 
-        ...wallet, 
-        error: "Failed to fetch balance after multiple attempts", 
-        checked: true 
+      return {
+        address: privateKey,
+        error: "Failed to process private key after multiple attempts",
+        checked: true
       };
     }
   };
 
-  const processBatch = async (batch: WalletData[]) => {
-    const results = await Promise.all(batch.map(wallet => processWallet(wallet)));
+  const processBatch = async (privateKeys: string[]) => {
+    const results = await Promise.all(
+      privateKeys.map(key => processPrivateKey(key))
+    );
+
     setWallets(current => {
-      const updated = [...current];
-      results.forEach(result => {
-        const index = updated.findIndex(w => w.address === result.address);
-        if (index !== -1) {
-          updated[index] = result;
-        }
-      });
-      storage.saveProgress(updated);
+      // Filter out null results and add new wallets
+      const validResults = results.filter((r): r is WalletData => r !== null);
+      const updated = [...current, ...validResults];
+
+      // Save progress, focusing on wallets with balance
+      const walletsWithBalance = updated.filter(w => w.balance && Number(w.balance) > 0);
+      storage.saveProgress(walletsWithBalance);
+
       return updated;
     });
   };
 
-  const handleSubmit = async (addresses: string[]) => {
+  const handleSubmit = async (privateKeys: string[]) => {
     // Reset any previous state
     storage.clearProgress();
 
-    const validWallets = addresses.map(address => ({
-      address,
-      checked: false
-    }));
-
-    setWallets(validWallets);
+    setWallets([]);
     setIsProcessing(true);
     setUploadProgress(100); // File processing complete
 
     try {
-      // Process wallets in batches
-      for (let i = 0; i < validWallets.length; i += BATCH_SIZE) {
-        const batch = validWallets.slice(i, i + BATCH_SIZE);
+      // Process private keys in batches
+      for (let i = 0; i < privateKeys.length; i += BATCH_SIZE) {
+        const batch = privateKeys.slice(i, i + BATCH_SIZE);
         await processBatch(batch);
       }
 
+      const walletsWithBalance = wallets.filter(w => w.balance && Number(w.balance) > 0);
+      const totalBalance = walletsWithBalance
+        .reduce((sum, w) => sum + Number(w.balance || 0), 0)
+        .toFixed(4);
+
       toast({
         title: "Processing Complete",
-        description: `Successfully checked ${validWallets.length} wallet balances`
+        description: `Found ${walletsWithBalance.length} wallets with balance. Total: ${totalBalance} ETH`
       });
     } catch (error) {
       toast({
         title: "Processing Error",
-        description: "Failed to check some wallet balances",
+        description: "Failed to process some private keys",
         variant: "destructive"
       });
     } finally {
