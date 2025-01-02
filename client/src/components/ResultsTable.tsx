@@ -7,8 +7,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { WalletData } from "../lib/storage";
-import { AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { AlertCircle, CheckCircle, Clock, Download } from "lucide-react";
 
 interface ResultsTableProps {
   wallets: WalletData[];
@@ -23,10 +24,43 @@ export function ResultsTable({ wallets }: ResultsTableProps) {
     return balanceB - balanceA;
   });
 
+  const handleExport = () => {
+    // Filter wallets with balance
+    const walletsWithBalance = sortedWallets.filter(w => w.balance && Number(w.balance) > 0);
+
+    // Create CSV content
+    const csvContent = [
+      'Address,Balance (ETH)', // CSV header
+      ...walletsWithBalance.map(wallet => 
+        `${wallet.address},${wallet.balance}`
+      )
+    ].join('\n');
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', `ethereum-wallets-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <Card className="w-full overflow-hidden">
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Wallet Balances</CardTitle>
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={handleExport}
+          disabled={!sortedWallets.some(w => w.balance && Number(w.balance) > 0)}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Export
+        </Button>
       </CardHeader>
       <CardContent className="p-0">
         <div className="max-h-[600px] overflow-auto">
