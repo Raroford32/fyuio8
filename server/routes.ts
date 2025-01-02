@@ -7,6 +7,7 @@ import readline from "readline";
 import Web3 from 'web3';
 
 const web3 = new Web3();
+const CHUNK_SIZE = 1000; // Process 1000 lines at a time
 
 interface ProgressUpdate {
   type: 'upload' | 'processing';
@@ -14,6 +15,7 @@ interface ProgressUpdate {
   total?: number;
   completed?: number;
   addresses?: string[];
+  error?: string;
 }
 
 function deriveAddress(privateKey: string): string | null {
@@ -75,75 +77,72 @@ export function registerRoutes(app: Express): Server {
     ws.on('close', () => console.log('WebSocket client disconnected'));
   });
 
-  // File upload endpoint
+  // File upload endpoint with chunked processing
   app.post('/api/upload', async (req, res) => {
     console.log('Upload request received');
+    let fileStream = null;
+    let rl = null;
+
     try {
       if (!req.files || !req.files.file) {
-        console.error('No file uploaded');
-        return res.status(400).json({ error: 'No file uploaded' });
+        throw new Error('No file uploaded');
       }
 
       const file = req.files.file as fileUpload.UploadedFile;
       console.log(`Processing file: ${file.name}, size: ${file.size} bytes`);
 
       if (file.size === 0) {
-        console.error('Empty file uploaded');
-        return res.status(400).json({ error: 'Empty file uploaded' });
+        throw new Error('Empty file uploaded');
       }
 
-      const filePath = file.tempFilePath;
-      const addresses: string[] = [];
-      let invalidKeys = 0;
-
-      // Create read stream for the file
-      const fileStream = createReadStream(filePath);
-      const rl = readline.createInterface({
+      // Create read stream and line interface
+      fileStream = createReadStream(file.tempFilePath);
+      rl = readline.createInterface({
         input: fileStream,
-        crlfDelay: Infinity
+        crlfDelay: Infinity,
+        highWaterMark: 1024 * 1024 // 1MB buffer
       });
 
       let lineCount = 0;
       let processedLines = 0;
+      let currentChunk: string[] = [];
+      let validAddresses: string[] = [];
+      let invalidCount = 0;
 
-      // First count total lines
-      console.log('Counting total lines...');
+      // Count total lines first
       for await (const _ of rl) {
         lineCount++;
-        if (lineCount % 100000 === 0) {
-          console.log(`Counted ${lineCount} lines...`);
-        }
       }
-      console.log(`Total lines: ${lineCount}`);
 
       // Reset stream for processing
       fileStream.destroy();
-      const newFileStream = createReadStream(filePath);
-      const newRl = readline.createInterface({
-        input: newFileStream,
-        crlfDelay: Infinity
+      fileStream = createReadStream(file.tempFilePath);
+      rl = readline.createInterface({
+        input: fileStream,
+        crlfDelay: Infinity,
+        highWaterMark: 1024 * 1024
       });
 
-      // Process lines and send progress updates
-      console.log('Starting line processing...');
-      for await (const line of newRl) {
+      // Process lines in chunks
+      for await (const line of rl) {
         const privateKey = line.trim();
         if (privateKey) {
           const address = deriveAddress(privateKey);
           if (address) {
-            addresses.push(address);
+            currentChunk.push(address);
+            validAddresses.push(address);
           } else {
-            invalidKeys++;
+            invalidCount++;
           }
         }
         processedLines++;
 
-        // Broadcast progress every 1000 lines or at 100%
-        if (processedLines % 1000 === 0 || processedLines === lineCount) {
+        // Send updates for each chunk or at 100%
+        if (currentChunk.length >= CHUNK_SIZE || processedLines === lineCount) {
           const progress = Math.floor((processedLines / lineCount) * 100);
           console.log(`Processing progress: ${progress}%`);
 
-          const currentAddresses = processedLines === lineCount ? addresses : addresses.slice(-10);
+          // Broadcast progress to all connected clients
           wss.clients.forEach(client => {
             if (client.readyState === 1) {
               const update: ProgressUpdate = {
@@ -151,43 +150,65 @@ export function registerRoutes(app: Express): Server {
                 progress,
                 total: lineCount,
                 completed: processedLines,
-                addresses: currentAddresses
+                addresses: currentChunk
               };
               client.send(JSON.stringify(update));
             }
           });
+
+          // Clear chunk after sending
+          currentChunk = [];
+
+          // Free up memory periodically
+          if (global.gc) {
+            global.gc();
+          }
         }
       }
 
-      console.log('File processing complete');
-      console.log(`Processed ${lineCount} lines, found ${invalidKeys} invalid keys`);
+      // Clean up
+      rl.close();
+      fileStream.destroy();
 
       // Delete temp file
-      if (file.tempFilePath) {
-        try {
-          await new Promise<void>((resolve, reject) => {
-            unlink(file.tempFilePath, (err) => {
-              if (err) reject(err);
-              else resolve();
-            });
-          });
-        } catch (err) {
-          console.error('Error deleting temp file:', err);
-        }
-      }
+      await new Promise<void>((resolve, reject) => {
+        unlink(file.tempFilePath, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
 
       res.json({ 
-        success: true, 
-        addresses,
+        success: true,
         stats: {
           total: lineCount,
-          valid: addresses.length,
-          invalid: invalidKeys
+          valid: validAddresses.length,
+          invalid: invalidCount
         }
       });
     } catch (error: any) {
       console.error('Upload error:', error);
-      res.status(500).json({ error: 'Error processing file', details: error.message });
+
+      // Clean up on error
+      if (rl) rl.close();
+      if (fileStream) fileStream.destroy();
+
+      // Try to delete temp file if it exists
+      if (req.files?.file) {
+        const file = req.files.file as fileUpload.UploadedFile;
+        try {
+          await new Promise<void>((resolve) => {
+            unlink(file.tempFilePath, () => resolve());
+          });
+        } catch (unlinkError) {
+          console.error('Error deleting temp file:', unlinkError);
+        }
+      }
+
+      res.status(500).json({ 
+        error: 'Error processing file', 
+        details: error.message 
+      });
     }
   });
 

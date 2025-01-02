@@ -30,6 +30,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
+  const accumulatedAddresses = useRef<string[]>([]);
 
   const handleSubmit = () => {
     const addresses = input
@@ -65,6 +66,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
     try {
       setIsUploading(true);
       onUploadProgress(0);
+      accumulatedAddresses.current = [];
 
       // Close existing WebSocket connection if any
       if (wsRef.current) {
@@ -96,13 +98,23 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
           const update = JSON.parse(event.data);
           if (update.type === 'upload') {
             onUploadProgress(update.progress);
-            if (update.progress === 100 && update.addresses) {
-              setInput(update.addresses.join('\n'));
-              ws.close();
 
+            // Accumulate addresses from chunks
+            if (update.addresses && update.addresses.length > 0) {
+              accumulatedAddresses.current = [
+                ...accumulatedAddresses.current,
+                ...update.addresses
+              ];
+
+              // Update textarea with latest addresses
+              setInput(accumulatedAddresses.current.join('\n'));
+            }
+
+            if (update.progress === 100) {
+              ws.close();
               toast({
                 title: "File Processing Complete",
-                description: `Successfully processed ${update.addresses.length} addresses`,
+                description: `Successfully processed ${accumulatedAddresses.current.length} addresses`,
               });
             }
           }
@@ -142,7 +154,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
 
       if (result.stats) {
         toast({
-          title: "Processing Complete",
+          title: "Processing Stats",
           description: `Processed ${result.stats.total} entries: ${result.stats.valid} valid, ${result.stats.invalid} invalid`,
         });
       }
@@ -155,6 +167,8 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
         variant: "destructive"
       });
       onUploadProgress(0);
+      setInput("");
+      accumulatedAddresses.current = [];
     } finally {
       setIsUploading(false);
       if (wsRef.current) {

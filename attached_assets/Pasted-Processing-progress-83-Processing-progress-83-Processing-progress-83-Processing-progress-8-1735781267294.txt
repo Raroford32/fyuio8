@@ -1,0 +1,133 @@
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 83%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 84%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+Processing progress: 85%
+
+<--- Last few GCs --->
+
+[3127:0x4a46490]  3150152 ms: Scavenge 4034.2 (4125.6) -> 4021.0 (4126.8) MB, 8.24 / 0.00 ms  (average mu = 0.366, current mu = 0.357) allocation failure; 
+[3127:0x4a46490]  3150198 ms: Scavenge 4035.6 (4126.8) -> 4022.3 (4127.3) MB, 9.67 / 0.00 ms  (average mu = 0.366, current mu = 0.357) allocation failure; 
+[3127:0x4a46490]  3150246 ms: Scavenge 4037.0 (4127.3) -> 4023.7 (4128.6) MB, 9.70 / 0.00 ms  (average mu = 0.366, current mu = 0.357) allocation failure; 
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0xab52d0 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 2: 0xe7ea10 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 3: 0xe7edf4 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 4: 0x10ae4b7  [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 5: 0x10ae549  [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 6: 0x10c60e0 v8::internal::Heap::PerformGarbageCollection(v8::internal::GarbageCollector, v8::internal::GarbageCollectionReason, char const*) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 7: 0x10c6c17 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 8: 0x109fc97 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+ 9: 0x10a08d4 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+10: 0x107fbfe v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+11: 0x14e9920 v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [/nix/store/wfxq6w9bkp5dcfr8yb6789b0w7128gnb-nodejs-20.18.1/bin/node]
+12: 0x7f456fed9ef6 
