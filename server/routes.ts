@@ -6,19 +6,24 @@ import { WebSocketServer } from "ws";
 import readline from "readline";
 import Web3 from 'web3';
 
-const web3 = new Web3();
-const CHUNK_SIZE = 1000; // Process 1000 lines at a time
+const web3 = new Web3('https://eth.llamarpc.com');
+const CHUNK_SIZE = 50; // Reduced chunk size for real-time balance checking
+
+interface WalletUpdate {
+  address: string;
+  balance: string;
+}
 
 interface ProgressUpdate {
-  type: 'upload' | 'processing';
+  type: 'wallet-update';
   progress: number;
   total?: number;
   completed?: number;
-  addresses?: string[];
+  wallets?: WalletUpdate[];
   error?: string;
 }
 
-function deriveAddress(privateKey: string): string | null {
+async function deriveAddressAndCheckBalance(privateKey: string): Promise<WalletUpdate | null> {
   try {
     // Remove '0x' prefix if present and clean the key
     const cleanKey = privateKey.trim().toLowerCase().replace('0x', '');
@@ -30,8 +35,18 @@ function deriveAddress(privateKey: string): string | null {
 
     // Create account from private key and get address
     const account = web3.eth.accounts.privateKeyToAccount('0x' + cleanKey);
-    return account.address;
-  } catch {
+    const address = account.address;
+
+    // Check balance
+    const balance = await web3.eth.getBalance(address);
+    const ethBalance = web3.utils.fromWei(balance, 'ether');
+
+    return {
+      address,
+      balance: (+ethBalance).toFixed(4)
+    };
+  } catch (error) {
+    console.error('Error processing key:', error);
     return null;
   }
 }
@@ -39,22 +54,19 @@ function deriveAddress(privateKey: string): string | null {
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
 
-  // File upload middleware with detailed error handling
   app.use(fileUpload({
     useTempFiles: true,
     tempFileDir: '/tmp/',
-    limits: { fileSize: 500 * 1024 * 1024 }, // 500MB limit
+    limits: { fileSize: 500 * 1024 * 1024 },
     abortOnLimit: false,
     debug: true,
   }));
 
-  // Create WebSocket server with custom upgrade handling
   const wss = new WebSocketServer({ 
     noServer: true,
     perMessageDeflate: false
   });
 
-  // Handle WebSocket upgrade requests
   httpServer.on('upgrade', (request, socket, head) => {
     try {
       if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
@@ -70,14 +82,12 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // WebSocket connection handling
   wss.on('connection', (ws) => {
     console.log('WebSocket client connected');
     ws.on('error', (error) => console.error('WebSocket error:', error));
     ws.on('close', () => console.log('WebSocket client disconnected'));
   });
 
-  // File upload endpoint with chunked processing
   app.post('/api/upload', async (req, res) => {
     console.log('Upload request received');
     let fileStream = null;
@@ -95,18 +105,17 @@ export function registerRoutes(app: Express): Server {
         throw new Error('Empty file uploaded');
       }
 
-      // Create read stream and line interface
       fileStream = createReadStream(file.tempFilePath);
       rl = readline.createInterface({
         input: fileStream,
         crlfDelay: Infinity,
-        highWaterMark: 1024 * 1024 // 1MB buffer
+        highWaterMark: 1024 * 1024
       });
 
       let lineCount = 0;
       let processedLines = 0;
-      let currentChunk: string[] = [];
-      let validAddresses: string[] = [];
+      let currentChunk: WalletUpdate[] = [];
+      let validWallets = 0;
       let invalidCount = 0;
 
       // Count total lines first
@@ -127,10 +136,10 @@ export function registerRoutes(app: Express): Server {
       for await (const line of rl) {
         const privateKey = line.trim();
         if (privateKey) {
-          const address = deriveAddress(privateKey);
-          if (address) {
-            currentChunk.push(address);
-            validAddresses.push(address);
+          const wallet = await deriveAddressAndCheckBalance(privateKey);
+          if (wallet) {
+            currentChunk.push(wallet);
+            validWallets++;
           } else {
             invalidCount++;
           }
@@ -142,15 +151,18 @@ export function registerRoutes(app: Express): Server {
           const progress = Math.floor((processedLines / lineCount) * 100);
           console.log(`Processing progress: ${progress}%`);
 
+          // Only send wallets with balance
+          const walletsWithBalance = currentChunk.filter(w => Number(w.balance) > 0);
+
           // Broadcast progress to all connected clients
           wss.clients.forEach(client => {
             if (client.readyState === 1) {
               const update: ProgressUpdate = {
-                type: 'upload',
+                type: 'wallet-update',
                 progress,
                 total: lineCount,
                 completed: processedLines,
-                addresses: currentChunk
+                wallets: walletsWithBalance
               };
               client.send(JSON.stringify(update));
             }
@@ -182,7 +194,7 @@ export function registerRoutes(app: Express): Server {
         success: true,
         stats: {
           total: lineCount,
-          valid: validAddresses.length,
+          valid: validWallets,
           invalid: invalidCount
         }
       });

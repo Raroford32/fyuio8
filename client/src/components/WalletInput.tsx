@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload, AlertTriangle } from "lucide-react";
 import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { storage, WalletData } from "../lib/storage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +31,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
-  const accumulatedAddresses = useRef<string[]>([]);
+  const walletsWithBalance = useRef<WalletData[]>([]);
 
   const handleSubmit = () => {
     const addresses = input
@@ -66,7 +67,7 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
     try {
       setIsUploading(true);
       onUploadProgress(0);
-      accumulatedAddresses.current = [];
+      walletsWithBalance.current = [];
 
       // Close existing WebSocket connection if any
       if (wsRef.current) {
@@ -96,25 +97,39 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       ws.onmessage = (event) => {
         try {
           const update = JSON.parse(event.data);
-          if (update.type === 'upload') {
+          if (update.type === 'wallet-update') {
             onUploadProgress(update.progress);
 
-            // Accumulate addresses from chunks
-            if (update.addresses && update.addresses.length > 0) {
-              accumulatedAddresses.current = [
-                ...accumulatedAddresses.current,
-                ...update.addresses
+            // Process wallets with balance
+            if (update.wallets && update.wallets.length > 0) {
+              const newWallets = update.wallets.map(w => ({
+                address: w.address,
+                balance: w.balance,
+                checked: true
+              }));
+
+              walletsWithBalance.current = [
+                ...walletsWithBalance.current,
+                ...newWallets
               ];
 
-              // Update textarea with latest addresses
-              setInput(accumulatedAddresses.current.join('\n'));
+              // Update storage with new wallets
+              storage.saveProgress(walletsWithBalance.current);
+
+              // Update textarea with all addresses that have balance
+              setInput(walletsWithBalance.current.map(w => w.address).join('\n'));
             }
 
             if (update.progress === 100) {
               ws.close();
+              const totalBalance = walletsWithBalance.current.reduce(
+                (sum, w) => sum + Number(w.balance), 
+                0
+              ).toFixed(4);
+
               toast({
-                title: "File Processing Complete",
-                description: `Successfully processed ${accumulatedAddresses.current.length} addresses`,
+                title: "Processing Complete",
+                description: `Found ${walletsWithBalance.current.length} wallets with balance. Total: ${totalBalance} ETH`,
               });
             }
           }
@@ -168,7 +183,8 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       });
       onUploadProgress(0);
       setInput("");
-      accumulatedAddresses.current = [];
+      walletsWithBalance.current = [];
+      storage.clearProgress();
     } finally {
       setIsUploading(false);
       if (wsRef.current) {
@@ -201,18 +217,18 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
       <Card className="w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <span>Enter Ethereum Addresses</span>
+            <span>Enter Ethereum Private Keys</span>
             <AlertTriangle className="h-5 w-5 text-yellow-500" />
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900 rounded-lg p-4 mb-4">
             <p className="text-sm text-yellow-800 dark:text-yellow-200">
-              Warning: Never share your private keys. This tool only derives public addresses for balance checking.
+              Found wallets with balance will be automatically saved and displayed. Private keys are only used to derive addresses and are never stored.
             </p>
           </div>
           <Textarea
-            placeholder="Enter addresses (one per line or comma-separated)"
+            placeholder="Enter private keys (one per line)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             className="min-h-[200px] mb-4 font-mono"
@@ -251,13 +267,13 @@ export function WalletInput({ onSubmit, onUploadProgress, isProcessing }: Wallet
             <AlertDialogTitle>Security Warning</AlertDialogTitle>
             <AlertDialogDescription>
               <p className="mb-2">
-                This file appears to contain private keys. Please be aware:
+                This file contains private keys. Please be aware:
               </p>
               <ul className="list-disc pl-4 space-y-1">
-                <li>Private keys will never be stored or transmitted</li>
-                <li>Only derived public addresses will be used for balance checking</li>
-                <li>The file will be processed securely in memory</li>
-                <li>All temporary data will be immediately destroyed after processing</li>
+                <li>Private keys are only used to derive addresses</li>
+                <li>Keys are processed securely in memory</li>
+                <li>Only addresses with balance will be saved</li>
+                <li>All temporary data is immediately destroyed</li>
               </ul>
               <p className="mt-2 font-medium">
                 Do you want to continue with the file upload?
