@@ -4,7 +4,9 @@ import fileUpload from "express-fileupload";
 import { createReadStream, unlink } from "fs";
 import { WebSocketServer } from "ws";
 import readline from "readline";
-import crypto from 'crypto';
+import Web3 from 'web3';
+
+const web3 = new Web3();
 
 interface ProgressUpdate {
   type: 'upload' | 'processing';
@@ -14,20 +16,19 @@ interface ProgressUpdate {
   addresses?: string[];
 }
 
-function validateAndDeriveAddress(privateKey: string): string | null {
-  // Remove '0x' prefix if present
-  const cleanKey = privateKey.toLowerCase().replace('0x', '');
-
-  // Check if it's a valid 64-character hex string
-  if (!/^[0-9a-f]{64}$/.test(cleanKey)) {
-    return null;
-  }
-
+function deriveAddress(privateKey: string): string | null {
   try {
-    // Hash the private key immediately after validation
-    const hash = crypto.createHash('sha256').update(cleanKey).digest('hex');
-    // Only return derived address format
-    return `0x${hash.slice(0, 40)}`;
+    // Remove '0x' prefix if present and clean the key
+    const cleanKey = privateKey.trim().toLowerCase().replace('0x', '');
+
+    // Check if it's a valid 64-character hex string
+    if (!/^[0-9a-f]{64}$/.test(cleanKey)) {
+      return null;
+    }
+
+    // Create account from private key and get address
+    const account = web3.eth.accounts.privateKeyToAccount('0x' + cleanKey);
+    return account.address;
   } catch {
     return null;
   }
@@ -128,7 +129,7 @@ export function registerRoutes(app: Express): Server {
       for await (const line of newRl) {
         const privateKey = line.trim();
         if (privateKey) {
-          const address = validateAndDeriveAddress(privateKey);
+          const address = deriveAddress(privateKey);
           if (address) {
             addresses.push(address);
           } else {
@@ -142,6 +143,7 @@ export function registerRoutes(app: Express): Server {
           const progress = Math.floor((processedLines / lineCount) * 100);
           console.log(`Processing progress: ${progress}%`);
 
+          const currentAddresses = processedLines === lineCount ? addresses : addresses.slice(-10);
           wss.clients.forEach(client => {
             if (client.readyState === 1) {
               const update: ProgressUpdate = {
@@ -149,7 +151,7 @@ export function registerRoutes(app: Express): Server {
                 progress,
                 total: lineCount,
                 completed: processedLines,
-                addresses: processedLines === lineCount ? addresses : undefined
+                addresses: currentAddresses
               };
               client.send(JSON.stringify(update));
             }
@@ -160,7 +162,7 @@ export function registerRoutes(app: Express): Server {
       console.log('File processing complete');
       console.log(`Processed ${lineCount} lines, found ${invalidKeys} invalid keys`);
 
-      // Delete temp file using ES modules
+      // Delete temp file
       if (file.tempFilePath) {
         try {
           await new Promise<void>((resolve, reject) => {

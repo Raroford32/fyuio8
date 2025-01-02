@@ -6,8 +6,8 @@ import { web3Client } from "../lib/web3Client";
 import { storage, type WalletData } from "../lib/storage";
 import { useToast } from "@/hooks/use-toast";
 
-const BATCH_SIZE = 5;
-const RETRY_DELAY = 1000;
+const BATCH_SIZE = 5; // Process 5 wallets at a time
+const RETRY_DELAY = 1000; // 1 second initial delay
 const MAX_RETRIES = 3;
 
 export default function WalletChecker() {
@@ -30,18 +30,19 @@ export default function WalletChecker() {
   const processWallet = async (wallet: WalletData, retries = 0): Promise<WalletData> => {
     try {
       if (!web3Client.validateAddress(wallet.address)) {
-        return { ...wallet, error: "Invalid address", checked: true };
+        return { ...wallet, error: "Invalid address format", checked: true };
       }
       const balance = await web3Client.getBalance(wallet.address);
       return { ...wallet, balance, checked: true };
     } catch (error) {
       if (retries < MAX_RETRIES) {
+        // Exponential backoff for retries
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retries)));
         return processWallet(wallet, retries + 1);
       }
       return { 
         ...wallet, 
-        error: "Failed to fetch balance", 
+        error: "Failed to fetch balance after multiple attempts", 
         checked: true 
       };
     }
@@ -63,6 +64,9 @@ export default function WalletChecker() {
   };
 
   const handleSubmit = async (addresses: string[]) => {
+    // Reset any previous state
+    storage.clearProgress();
+
     const validWallets = addresses.map(address => ({
       address,
       checked: false
@@ -72,16 +76,26 @@ export default function WalletChecker() {
     setIsProcessing(true);
     setUploadProgress(100); // File processing complete
 
-    for (let i = 0; i < validWallets.length; i += BATCH_SIZE) {
-      const batch = validWallets.slice(i, i + BATCH_SIZE);
-      await processBatch(batch);
-    }
+    try {
+      // Process wallets in batches
+      for (let i = 0; i < validWallets.length; i += BATCH_SIZE) {
+        const batch = validWallets.slice(i, i + BATCH_SIZE);
+        await processBatch(batch);
+      }
 
-    setIsProcessing(false);
-    toast({
-      title: "Processing Complete",
-      description: "All wallet balances have been checked"
-    });
+      toast({
+        title: "Processing Complete",
+        description: `Successfully checked ${validWallets.length} wallet balances`
+      });
+    } catch (error) {
+      toast({
+        title: "Processing Error",
+        description: "Failed to check some wallet balances",
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const completed = wallets.filter(w => w.checked).length;
@@ -106,7 +120,7 @@ export default function WalletChecker() {
           <>
             <ProgressDisplay
               total={wallets.length || 100}
-              completed={completed || Math.floor(totalProgress)}
+              completed={completed}
               errors={errors}
             />
             {wallets.length > 0 && <ResultsTable wallets={wallets} />}
