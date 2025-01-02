@@ -15,6 +15,14 @@ interface ResultsTableProps {
 }
 
 export function ResultsTable({ wallets }: ResultsTableProps) {
+  // Sort wallets by balance in descending order
+  const sortedWallets = [...wallets].sort((a, b) => {
+    // Handle cases where balance might be undefined or error cases
+    const balanceA = a.balance ? Number(a.balance) : -1;
+    const balanceB = b.balance ? Number(b.balance) : -1;
+    return balanceB - balanceA;
+  });
+
   return (
     <Card className="w-full overflow-hidden">
       <CardHeader>
@@ -31,7 +39,7 @@ export function ResultsTable({ wallets }: ResultsTableProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {wallets.map((wallet, i) => (
+              {sortedWallets.map((wallet) => (
                 <TableRow 
                   key={wallet.address} 
                   className={wallet.error ? 'bg-red-50/50 dark:bg-red-950/50' : ''}
